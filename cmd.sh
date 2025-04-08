@@ -1,0 +1,1 @@
+ curl -X POST http://localhost:8080/chat \\n  -H "Content-Type: application/json" \\n  -d '{"question": "介绍一下GPT-4的能力"}'
