@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine3.18 AS base
+FROM golang:1.23.0-alpine AS base
 
 # 安装构建工具和 git
 RUN apk update && apk add --no-cache git bash gcc musl-dev

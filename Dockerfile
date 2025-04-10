@@ -12,7 +12,7 @@ COPY . .
 RUN go build -o app main.go
 
 # 最小化镜像（可选）
-FROM alpine:latest
+FROM alpine:3.18
 WORKDIR /app
 COPY --from=builder /app/app .
 
