@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  awesome-go-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - .env:/app/.env
+    environment:
+      - ENV_FILE=/app/.env
+    depends_on:
+      - redis
+    networks:
+      - awesome-net
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - ./redis/data:/data
+    networks:
+      - awesome-net
+
+networks:
+  awesome-net:
+    driver: bridge
