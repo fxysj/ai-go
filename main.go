@@ -8,5 +8,5 @@ import (
 func main() {
 	util.LoadEnv() // 加载 .env
 	r := router.SetupRouter()
-	r.Run(":8080")
+	r.Run(":9001")
 }
