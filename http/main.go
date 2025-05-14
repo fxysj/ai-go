@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	//"strings"
 	"regexp"
 	"sync"
 	"time"
@@ -13,7 +12,7 @@ import (
 
 const (
 	filePath    = "/Users/sin/GolandProjects/awesomeProject/http/deny_ips.conf"
-	workerCount = 10
+	workerCount = 500 // 扩大 worker 数量以处理更多请求
 	timeout     = 5 * time.Second
 	outputFile  = "./requests.txt"
 )
@@ -71,26 +70,27 @@ func extractIPs(filePath string) ([]string, error) {
 }
 
 func logRequest(command, response string) {
-	file, err := os.OpenFile(outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
-	if err != nil {
-		fmt.Printf("❌ 无法写入文件: %v\n", err)
-		return
-	}
-	defer file.Close()
+	// 异步写日志，减少请求阻塞
+	go func() {
+		file, err := os.OpenFile(outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+		if err != nil {
+			fmt.Printf("❌ 无法写入文件: %v\n", err)
+			return
+		}
+		defer file.Close()
 
-	writer := bufio.NewWriter(file)
-	_, err = writer.WriteString(fmt.Sprintf("命令: %s\n响应: %s\n\n", command, response))
-	if err != nil {
-		fmt.Printf("❌ 无法写入文件: %v\n", err)
-	}
-	writer.Flush()
+		writer := bufio.NewWriter(file)
+		_, err = writer.WriteString(fmt.Sprintf("命令: %s\n响应: %s\n\n", command, response))
+		if err != nil {
+			fmt.Printf("❌ 无法写入文件: %v\n", err)
+		}
+		writer.Flush()
+	}()
 }
 
-func scanForVulnerabilities(ip string, wg *sync.WaitGroup, sem chan struct{}) {
+func scanForVulnerabilities(ip string, wg *sync.WaitGroup, sem chan struct{}, client *http.Client) {
 	defer wg.Done()
 	defer func() { <-sem }()
-
-	client := &http.Client{Timeout: timeout}
 
 	// 扫描常见的登录路径和文件注入路径
 	for _, path := range commonPaths {
@@ -202,6 +202,11 @@ func main() {
 
 	fmt.Printf("✅ 发现 %d 个 IP，开始扫描...\n", len(ips))
 
+	// 创建 HTTP 客户端，使用连接复用
+	client := &http.Client{
+		Timeout: timeout,
+	}
+
 	// 使用 Goroutines 并发执行扫描
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, workerCount)
@@ -209,7 +214,7 @@ func main() {
 	for _, ip := range ips {
 		wg.Add(1)
 		sem <- struct{}{}
-		go scanForVulnerabilities(ip, &wg, sem)
+		go scanForVulnerabilities(ip, &wg, sem, client)
 	}
 
 	wg.Wait()
