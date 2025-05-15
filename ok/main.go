@@ -2,7 +2,10 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,7 +17,7 @@ import (
 
 const (
 	filePath    = "/Users/sin/GolandProjects/awesomeProject/http/deny_ips.conf"
-	workerCount = 500
+	workerCount = 1000
 	timeout     = 5 * time.Second
 	outputFile  = "./requests.txt"
 )
@@ -89,6 +92,36 @@ func logRequest(command, response string) {
 	}()
 }
 
+// 自定义 HTTP 客户端，打印本地端口和响应头
+func NewHttpClientWithPortLogging() *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   5 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true}, // 跳过 HTTPS 证书校验
+		DisableKeepAlives:   false,
+		MaxIdleConns:        1000,
+		MaxConnsPerHost:     1000,
+		MaxIdleConnsPerHost: 1000,
+		IdleConnTimeout:     90 * time.Second,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := dialer.DialContext(ctx, network, addr)
+			if err == nil {
+				localAddr := conn.LocalAddr().(*net.TCPAddr)
+				fmt.Printf("🔌 发起请求，客户端本地端口: %d -> %s\n", localAddr.Port, addr)
+			}
+			return conn, err
+		},
+	}
+
+	return &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: transport,
+	}
+}
+
 func scanForVulnerabilities(ip string, wg *sync.WaitGroup, sem chan struct{}, client *http.Client) {
 	defer wg.Done()
 	defer func() { <-sem }()
@@ -107,6 +140,9 @@ func scanForVulnerabilities(ip string, wg *sync.WaitGroup, sem chan struct{}, cl
 			continue
 		}
 		defer resp.Body.Close()
+
+		// 打印响应头信息
+		fmt.Printf("响应头 (%s): %v\n", url, resp.Header)
 
 		if resp.StatusCode == 200 || resp.StatusCode == 401 || resp.StatusCode == 403 {
 			logRequest(url, fmt.Sprintf("响应码: %d", resp.StatusCode))
@@ -130,6 +166,9 @@ func scanForVulnerabilities(ip string, wg *sync.WaitGroup, sem chan struct{}, cl
 			}
 			defer resp.Body.Close()
 
+			// 打印响应头信息
+			fmt.Printf("响应头 (%s): %v\n", url, resp.Header)
+
 			if resp.StatusCode == 200 {
 				logRequest(url, fmt.Sprintf("SQL注入响应码: %d", resp.StatusCode))
 				fmt.Printf("[+] [%d] %s 可能存在 SQL 注入漏洞\n", resp.StatusCode, url)
@@ -152,6 +191,9 @@ func scanForVulnerabilities(ip string, wg *sync.WaitGroup, sem chan struct{}, cl
 		}
 		defer resp.Body.Close()
 
+		// 打印响应头信息
+		fmt.Printf("响应头 (%s): %v\n", url, resp.Header)
+
 		if resp.StatusCode == 200 {
 			logRequest(url, fmt.Sprintf("响应码: %d", resp.StatusCode))
 			fmt.Printf("[+] [%d] %s 可能暴露敏感文件\n", resp.StatusCode, url)
@@ -172,6 +214,9 @@ func scanForVulnerabilities(ip string, wg *sync.WaitGroup, sem chan struct{}, cl
 			continue
 		}
 		defer resp.Body.Close()
+
+		// 打印响应头信息
+		fmt.Printf("响应头 (%s): %v\n", url, resp.Header)
 
 		if resp.StatusCode == 200 {
 			logRequest(url, fmt.Sprintf("授权注入响应码: %d", resp.StatusCode))
@@ -208,9 +253,7 @@ func main() {
 
 			fmt.Printf("✅ 发现 %d 个 IP，开始扫描...\n", len(ips))
 
-			client := &http.Client{
-				Timeout: timeout,
-			}
+			client := NewHttpClientWithPortLogging()
 
 			var wg sync.WaitGroup
 			sem := make(chan struct{}, workerCount)
